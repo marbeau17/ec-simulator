@@ -130,7 +130,7 @@ st.markdown(
 
     /* Metric cards */
     div[data-testid="stMetric"] {
-        background: #ffffff;
+        background: #ffffff !important;
         border: 1px solid #e2e8f0;
         border-radius: 10px;
         padding: 1rem 1.2rem;
@@ -147,26 +147,100 @@ st.markdown(
         color: #0f172a !important;
     }
 
-    /* Sidebar */
-    section[data-testid="stSidebar"] {
-        background: #f8fafc;
+    /* Force light theme on main area */
+    .stApp, [data-testid="stAppViewContainer"], .main .block-container {
+        background-color: #f9fafb !important;
+        color: #1e293b !important;
+    }
+
+    /* Tabs text color */
+    .stTabs [data-baseweb="tab"] {
+        color: #1e293b !important;
+    }
+    .stTabs [aria-selected="true"] {
+        color: #2563eb !important;
+    }
+
+    /* Selectbox / input text */
+    .stSelectbox div[data-baseweb="select"] span {
+        color: #1e293b !important;
+    }
+    div[data-baseweb="input"] input {
+        color: #1e293b !important;
+    }
+
+    /* Table header and cells */
+    .stDataFrame th {
+        color: #1e293b !important;
+    }
+    .stDataFrame td {
+        color: #334155 !important;
+    }
+
+    /* Header band - keep white text on dark bg */
+    .header-band, .header-band h1, .header-band p {
+        color: #ffffff !important;
+    }
+    .header-band p {
+        opacity: 0.82;
+    }
+
+    /* Sidebar - force light theme */
+    section[data-testid="stSidebar"], section[data-testid="stSidebar"] > div {
+        background: #f8fafc !important;
+        color: #1e293b !important;
     }
     section[data-testid="stSidebar"] .stMarkdown h3 {
         font-size: 0.95rem;
-        color: #1e3a5f;
+        color: #1e3a5f !important;
         border-bottom: 2px solid #1e3a5f;
         padding-bottom: 0.3rem;
         margin-top: 0.5rem;
+    }
+    section[data-testid="stSidebar"] label {
+        color: #334155 !important;
+    }
+    section[data-testid="stSidebar"] .stMarkdown p,
+    section[data-testid="stSidebar"] .stMarkdown span {
+        color: #334155 !important;
+    }
+    section[data-testid="stSidebar"] summary span {
+        color: #1e293b !important;
     }
 
     /* Section headers */
     .section-header {
         font-size: 1.1rem;
         font-weight: 700;
-        color: #1e293b;
+        color: #1e293b !important;
         border-left: 4px solid #2563eb;
         padding-left: 0.7rem;
         margin: 1.4rem 0 0.8rem 0;
+    }
+
+    /* Force dark text globally on light backgrounds */
+    .stMarkdown, .stMarkdown p, .stMarkdown li, .stMarkdown td, .stMarkdown th {
+        color: #1e293b !important;
+    }
+    div[data-testid="stExpander"] summary span {
+        color: #1e293b !important;
+    }
+    div[data-testid="stExpander"] .stMarkdown p,
+    div[data-testid="stExpander"] .stMarkdown li,
+    div[data-testid="stExpander"] .stMarkdown td,
+    div[data-testid="stExpander"] .stMarkdown th {
+        color: #334155 !important;
+    }
+    .stSelectbox label, .stNumberInput label, .stSlider label {
+        color: #334155 !important;
+    }
+    .stCaption, .stCaption p {
+        color: #64748b !important;
+    }
+
+    /* Plotly chart container - force white background */
+    .js-plotly-plot, .plot-container {
+        background: #ffffff !important;
     }
 
     /* Mall badge pills */
@@ -210,6 +284,25 @@ st.markdown(
 with st.sidebar:
     st.markdown("### ⚙️ シミュレーション設定")
 
+    # --- Mall Selection ---
+    with st.expander("🏬 参画モール選択", expanded=True):
+        st.caption("シミュレーション対象のモールを選択してください。")
+        use_amazon = st.checkbox("🟠 Amazon", value=True, key="use_amazon")
+        use_rakuten = st.checkbox("🔴 楽天市場", value=True, key="use_rakuten")
+        use_yahoo = st.checkbox("🔵 Yahoo!ショッピング", value=True, key="use_yahoo")
+
+        active_malls = []
+        if use_amazon:
+            active_malls.append("Amazon")
+        if use_rakuten:
+            active_malls.append("楽天市場")
+        if use_yahoo:
+            active_malls.append("Yahoo!")
+
+        if not active_malls:
+            st.error("⚠️ 最低1つのモールを選択してください。")
+            active_malls = ["Amazon"]  # fallback
+
     # --- General Settings ---
     with st.expander("🏪 STEP1: 基本設定", expanded=True):
         current_monthly_sales = st.number_input(
@@ -249,41 +342,50 @@ with st.sidebar:
         )
 
     # --- Amazon ---
-    with st.expander("🟠 STEP3-a: Amazon 固有設定"):
-        buy_box_pct = st.slider(
-            "カート取得率", 0.0, 1.0, 0.90, 0.01, format="%.2f",
-            help="Amazonで自社商品がカートボックス（Buy Box）を獲得している割合。ビジネスレポートで確認可能。",
-        )
-        fba_usage = st.slider(
-            "FBA利用率", 0.0, 1.0, 0.80, 0.01, format="%.2f",
-            help="出荷数に対するFBA（Amazonフルフィルメント）の利用割合。高いほどCVRが向上します。",
-        )
-        prime_day_boost = st.slider(
-            "プライムデー跳ね上げ率 (7月)", 1.0, 5.0, 2.5, 0.1, format="%.1f",
-            help="7月のプライムデー期間中のアクセス・売上倍率。過去実績がない場合は2.0〜3.0が目安。",
-        )
+    if use_amazon:
+        with st.expander("🟠 STEP3-a: Amazon 固有設定"):
+            buy_box_pct = st.slider(
+                "カート取得率", 0.0, 1.0, 0.90, 0.01, format="%.2f",
+                help="Amazonで自社商品がカートボックス（Buy Box）を獲得している割合。ビジネスレポートで確認可能。",
+            )
+            fba_usage = st.slider(
+                "FBA利用率", 0.0, 1.0, 0.80, 0.01, format="%.2f",
+                help="出荷数に対するFBA（Amazonフルフィルメント）の利用割合。高いほどCVRが向上します。",
+            )
+            prime_day_boost = st.slider(
+                "プライムデー跳ね上げ率 (7月)", 1.0, 5.0, 2.5, 0.1, format="%.1f",
+                help="7月のプライムデー期間中のアクセス・売上倍率。過去実績がない場合は2.0〜3.0が目安。",
+            )
+    else:
+        buy_box_pct, fba_usage, prime_day_boost = 0.90, 0.80, 2.5
 
     # --- Rakuten ---
-    with st.expander("🔴 STEP3-b: 楽天 固有設定"):
-        ss_boost = st.slider(
-            "楽天SS跳ね上げ率 (3,6,9,12月)", 1.0, 5.0, 3.0, 0.1, format="%.1f",
-            help="楽天スーパーSALE（3,6,9,12月）期間中の売上倍率。実績がない場合は2.0〜4.0が目安。",
-        )
-        point_mult = st.slider(
-            "店舗負担ポイント倍率", 1.0, 10.0, 5.0, 0.5, format="%.1f",
-            help="店舗独自で設定するポイント倍率。高いほどCVRが上がりますが、原価負担も増えます。",
-        )
+    if use_rakuten:
+        with st.expander("🔴 STEP3-b: 楽天 固有設定"):
+            ss_boost = st.slider(
+                "楽天SS跳ね上げ率 (3,6,9,12月)", 1.0, 5.0, 3.0, 0.1, format="%.1f",
+                help="楽天スーパーSALE（3,6,9,12月）期間中の売上倍率。実績がない場合は2.0〜4.0が目安。",
+            )
+            point_mult = st.slider(
+                "店舗負担ポイント倍率", 1.0, 10.0, 5.0, 0.5, format="%.1f",
+                help="店舗独自で設定するポイント倍率。高いほどCVRが上がりますが、原価負担も増えます。",
+            )
+    else:
+        ss_boost, point_mult = 3.0, 5.0
 
     # --- Yahoo ---
-    with st.expander("🔵 STEP3-c: Yahoo! 固有設定"):
-        five_day_boost = st.slider(
-            "5のつく日係数", 1.0, 3.0, 1.5, 0.1, format="%.1f",
-            help="Yahoo!ショッピングの5のつく日（5,15,25日）によるアクセス増加効果。",
-        )
-        pr_option_rate = st.slider(
-            "PRオプション料率", 0.0, 0.30, 0.05, 0.01, format="%.2f",
-            help="Yahoo!ショッピングの検索結果上位表示オプション料率。売上に対して課金されます。",
-        )
+    if use_yahoo:
+        with st.expander("🔵 STEP3-c: Yahoo! 固有設定"):
+            five_day_boost = st.slider(
+                "5のつく日係数", 1.0, 3.0, 1.5, 0.1, format="%.1f",
+                help="Yahoo!ショッピングの5のつく日（5,15,25日）によるアクセス増加効果。",
+            )
+            pr_option_rate = st.slider(
+                "PRオプション料率", 0.0, 0.30, 0.05, 0.01, format="%.2f",
+                help="Yahoo!ショッピングの検索結果上位表示オプション料率。売上に対して課金されます。",
+            )
+    else:
+        five_day_boost, pr_option_rate = 1.5, 0.05
 
     # --- Seasonality ---
     with st.expander("📅 STEP3-d: 季節指数 (月別)"):
@@ -510,7 +612,7 @@ def run_simulation() -> pd.DataFrame:
         organic = organic_traffic_base * s_idx
         base_traffic = organic + ad_traffic
 
-        for mall in ["Amazon", "楽天市場", "Yahoo!"]:
+        for mall in active_malls:
             traffic = base_traffic
             if mall == "Amazon" and month_num == 7:
                 traffic *= prime_day_boost
@@ -562,7 +664,8 @@ total_ad = df["広告費 (円)"].sum()
 overall_roas = total_sales / total_ad if total_ad > 0 else 0
 profit_rate = total_profit / total_sales * 100 if total_sales > 0 else 0
 
-mall_colors = {"Amazon": "#FF9900", "楽天市場": "#BF0000", "Yahoo!": "#FF0033"}
+all_mall_colors = {"Amazon": "#FF9900", "楽天市場": "#BF0000", "Yahoo!": "#FF0033"}
+mall_colors = {k: v for k, v in all_mall_colors.items() if k in active_malls}
 
 
 # ──────────────────────────────────────────────
@@ -571,7 +674,7 @@ mall_colors = {"Amazon": "#FF9900", "楽天市場": "#BF0000", "Yahoo!": "#FF003
 def render_context_alerts():
     """Display automatic insight alerts based on simulation results."""
     # Check per-mall annual profit
-    for mall in ["Amazon", "楽天市場", "Yahoo!"]:
+    for mall in active_malls:
         mall_profit = df[df["モール"] == mall]["限界利益 (円)"].sum()
         if mall_profit < 0:
             st.warning(f"⚠️ **{mall}** の年間限界利益がマイナス（¥{mall_profit:,.0f}）です。広告予算の配分見直しを検討してください。")
@@ -585,15 +688,16 @@ def render_context_alerts():
         st.success(f"✅ 利益率が **{profit_rate:.1f}%** と非常に良好です。広告投資を増やして売上拡大を狙える余地があります。")
 
     # Single mall dependency
-    for mall in ["Amazon", "楽天市場", "Yahoo!"]:
-        mall_sales = df[df["モール"] == mall]["売上 (円)"].sum()
-        share = mall_sales / total_sales * 100 if total_sales > 0 else 0
-        if share > 60:
-            st.info(f"ℹ️ **{mall}** の売上依存度が **{share:.1f}%** です。リスク分散のため、他モール強化を検討してください。")
+    if len(active_malls) >= 2:
+        for mall in active_malls:
+            mall_sales = df[df["モール"] == mall]["売上 (円)"].sum()
+            share = mall_sales / total_sales * 100 if total_sales > 0 else 0
+            if share > 60:
+                st.info(f"ℹ️ **{mall}** の売上依存度が **{share:.1f}%** です。リスク分散のため、他モール強化を検討してください。")
 
     # Red months check
     red_months = []
-    for mall in ["Amazon", "楽天市場", "Yahoo!"]:
+    for mall in active_malls:
         mall_df = df[df["モール"] == mall]
         neg_months = mall_df[mall_df["限界利益 (円)"] < 0]["月"].tolist()
         for m in neg_months:
@@ -645,7 +749,7 @@ with st.expander("ℹ️ モール比較のポイント", expanded=False):
         """
     )
 
-mall_cols = st.columns(3)
+mall_cols = st.columns(len(mall_colors))
 for idx, (mall, color) in enumerate(mall_colors.items()):
     mall_df = df[df["モール"] == mall]
     ms = mall_df["売上 (円)"].sum()
@@ -689,10 +793,11 @@ with chart_tab1:
     )
     fig_bar.update_layout(
         plot_bgcolor="#fafbfc", paper_bgcolor="#ffffff",
-        font=dict(family="Noto Sans JP, sans-serif", size=12),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5),
+        font=dict(family="Noto Sans JP, sans-serif", size=12, color="#1e293b"),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5, font=dict(color="#1e293b")),
         yaxis_title="売上 (円)", xaxis_title="",
         margin=dict(l=20, r=20, t=40, b=20), height=420,
+        xaxis=dict(tickfont=dict(color="#1e293b")), yaxis=dict(tickfont=dict(color="#1e293b")),
     )
     fig_bar.update_traces(textposition="inside", textfont_size=10)
     st.plotly_chart(fig_bar, use_container_width=True)
@@ -704,10 +809,11 @@ with chart_tab2:
     )
     fig_line.update_layout(
         plot_bgcolor="#fafbfc", paper_bgcolor="#ffffff",
-        font=dict(family="Noto Sans JP, sans-serif", size=12),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5),
+        font=dict(family="Noto Sans JP, sans-serif", size=12, color="#1e293b"),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5, font=dict(color="#1e293b")),
         yaxis_title="売上 (円)", xaxis_title="",
         margin=dict(l=20, r=20, t=40, b=20), height=420,
+        xaxis=dict(tickfont=dict(color="#1e293b")), yaxis=dict(tickfont=dict(color="#1e293b")),
     )
     st.plotly_chart(fig_line, use_container_width=True)
 
@@ -719,10 +825,11 @@ with chart_tab3:
     )
     fig_profit.update_layout(
         plot_bgcolor="#fafbfc", paper_bgcolor="#ffffff",
-        font=dict(family="Noto Sans JP, sans-serif", size=12),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5),
+        font=dict(family="Noto Sans JP, sans-serif", size=12, color="#1e293b"),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5, font=dict(color="#1e293b")),
         yaxis_title="限界利益 (円)", xaxis_title="",
         margin=dict(l=20, r=20, t=40, b=20), height=420,
+        xaxis=dict(tickfont=dict(color="#1e293b")), yaxis=dict(tickfont=dict(color="#1e293b")),
     )
     st.plotly_chart(fig_profit, use_container_width=True)
 
@@ -762,9 +869,10 @@ with cost_col1:
         hole=0.45,
     )
     fig_pie.update_layout(
-        font=dict(family="Noto Sans JP, sans-serif", size=12),
+        font=dict(family="Noto Sans JP, sans-serif", size=12, color="#1e293b"),
         margin=dict(l=10, r=10, t=30, b=10), height=350,
-        title=dict(text="年間コスト構成", font_size=14),
+        title=dict(text="年間コスト構成", font_size=14, font_color="#1e293b"),
+        legend=dict(font=dict(color="#1e293b")),
     )
     fig_pie.update_traces(textinfo="label+percent", textfont_size=11)
     st.plotly_chart(fig_pie, use_container_width=True)
@@ -776,9 +884,10 @@ with cost_col2:
         color_discrete_map=mall_colors, hole=0.45,
     )
     fig_share.update_layout(
-        font=dict(family="Noto Sans JP, sans-serif", size=12),
+        font=dict(family="Noto Sans JP, sans-serif", size=12, color="#1e293b"),
         margin=dict(l=10, r=10, t=30, b=10), height=350,
-        title=dict(text="モール別売上構成比", font_size=14),
+        title=dict(text="モール別売上構成比", font_size=14, font_color="#1e293b"),
+        legend=dict(font=dict(color="#1e293b")),
     )
     fig_share.update_traces(textinfo="label+percent", textfont_size=11)
     st.plotly_chart(fig_share, use_container_width=True)
@@ -799,7 +908,7 @@ with st.expander("ℹ️ データテーブルの使い方", expanded=False):
         """
     )
 
-table_mall = st.selectbox("モール選択", ["全モール", "Amazon", "楽天市場", "Yahoo!"])
+table_mall = st.selectbox("モール選択", ["全モール"] + active_malls)
 
 display_df = df.copy()
 if table_mall != "全モール":
