@@ -1,0 +1,4 @@
+# .gitignoreファイルの作成 (WindowsのPowerShellの場合)
+echo "__pycache__/" > .gitignore
+echo ".streamlit/secrets.toml" >> .gitignore
+echo ".env" >> .gitignore
