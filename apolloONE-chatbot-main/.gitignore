@@ -1,0 +1,31 @@
+# セキュリティ：環境変数を隠す（最重要）
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# 依存ライブラリ
+node_modules/
+
+# ビルド成果物
+dist/
+dist-ssr/
+*.local
+
+# Firebase
+.firebase/
+firebase-debug.log
+firebase-debug.*.log
+
+# functions 内のビルド成果物・キャッシュ（二重防御）
+functions/lib/
+functions/.cache/
+
+# エディタ設定・キャッシュ
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Vercel
+.vercel/
