@@ -4,6 +4,8 @@ node_modules/
 .pnp.js
 
 # testing
+playwright-report/
+test-results/
 coverage/
 
 # next.js
