@@ -2,8 +2,8 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, Send, Bot, User, ToggleLeft, ToggleRight, Info, Phone, Tag } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ArrowLeft, Send, Bot, User, Info, Tag, AlertCircle, RefreshCw, Loader2 } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -35,59 +35,41 @@ interface ThreadDetail {
   messages: Message[];
 }
 
-const mockThread: ThreadDetail = {
-  id: "thread_1",
-  customer: {
-    id: "cust_1",
-    lineName: "田中太郎",
-    membershipTier: "VIP",
-    tags: ["常連", "VIP対象", "ワイン好き"],
-    totalMessages: 142,
-    followedAt: "2024-06-15T10:00:00Z",
-  },
-  status: "ai",
-  messages: [
-    { id: "1", sender: "user", content: "こんにちは、今週末の予約について相談したいのですが。", timestamp: new Date(Date.now() - 1000 * 60 * 40).toISOString() },
-    { id: "2", sender: "ai", content: "田中様、こんにちは！いつもご利用ありがとうございます。今週末のご予約についてですね。何名様でしょうか？", timestamp: new Date(Date.now() - 1000 * 60 * 39).toISOString() },
-    { id: "3", sender: "user", content: "2名でお願いします。19時頃希望です。", timestamp: new Date(Date.now() - 1000 * 60 * 35).toISOString() },
-    { id: "4", sender: "ai", content: "2名様、19時でございますね。土曜日・日曜日どちらをご希望でしょうか？\n\n現在の空き状況：\n・土曜日 19:00 - カウンター/テーブル共に空きあり\n・日曜日 19:00 - テーブルのみ空きあり", timestamp: new Date(Date.now() - 1000 * 60 * 34).toISOString() },
-    { id: "5", sender: "user", content: "土曜日でお願いします。個室は空いてますか？", timestamp: new Date(Date.now() - 1000 * 60 * 30).toISOString() },
-    { id: "6", sender: "ai", content: "土曜日19時、個室もご利用可能です！VIP会員様特典として個室料金をサービスさせていただきます。ご予約を確定してよろしいですか？", timestamp: new Date(Date.now() - 1000 * 60 * 29).toISOString() },
-    { id: "7", sender: "user", content: "はい、お願いします！", timestamp: new Date(Date.now() - 1000 * 60 * 25).toISOString() },
-    { id: "8", sender: "ai", content: "ご予約を確定しました！\n\n📅 日時: 土曜日 19:00\n👤 人数: 2名様\n🚪 席: 個室\n\n当日のお越しをお待ちしております。何かご不明な点がございましたらお気軽にお申し付けください。", timestamp: new Date(Date.now() - 1000 * 60 * 24).toISOString() },
-  ],
-};
-
 export default function ChatDetailPage() {
   const params = useParams();
   const router = useRouter();
   const [thread, setThread] = useState<ThreadDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState("");
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
   const [isAiMode, setIsAiMode] = useState(true);
   const [showSidebar, setShowSidebar] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    async function fetchThread() {
-      try {
-        const res = await fetch(`/api/chat/threads/${params.threadId}`);
-        if (res.ok) {
-          const json = await res.json();
-          setThread(json);
-          setIsAiMode(json.status === "ai");
-        } else {
-          setThread(mockThread);
-          setIsAiMode(mockThread.status === "ai");
-        }
-      } catch {
-        setThread(mockThread);
-        setIsAiMode(mockThread.status === "ai");
-      } finally {
-        setLoading(false);
+  async function fetchThread() {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/chat/threads/${params.threadId}`);
+      if (!res.ok) {
+        throw new Error(`サーバーエラー (${res.status})`);
       }
+      const json = await res.json();
+      setThread(json);
+      setIsAiMode(json.status === "ai");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "会話の取得に失敗しました";
+      setError(msg);
+    } finally {
+      setLoading(false);
     }
+  }
+
+  useEffect(() => {
     fetchThread();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params.threadId]);
 
   useEffect(() => {
@@ -95,29 +77,78 @@ export default function ChatDetailPage() {
   }, [thread?.messages]);
 
   async function handleSend() {
-    if (!message.trim() || !thread) return;
+    if (!message.trim() || !thread || sending) return;
 
-    const newMsg: Message = {
-      id: `msg_${Date.now()}`,
+    const content = message.trim();
+
+    // Optimistic update
+    const optimisticMsg: Message = {
+      id: `optimistic_${Date.now()}`,
       sender: "admin",
-      content: message,
+      content,
       timestamp: new Date().toISOString(),
     };
 
     setThread({
       ...thread,
-      messages: [...thread.messages, newMsg],
+      messages: [...thread.messages, optimisticMsg],
     });
     setMessage("");
+    setSending(true);
+    setSendError(null);
 
     try {
-      await fetch(`/api/chat/threads/${params.threadId}/messages`, {
+      const res = await fetch(`/api/chat/threads/${params.threadId}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: message }),
+        body: JSON.stringify({ content }),
       });
-    } catch {
-      // Message already shown optimistically
+
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        throw new Error(errBody.error || `送信に失敗しました (${res.status})`);
+      }
+
+      const { message: savedMessage, warning } = await res.json();
+
+      // Replace optimistic message with real one
+      if (savedMessage) {
+        setThread((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            messages: prev.messages.map((m) =>
+              m.id === optimisticMsg.id
+                ? {
+                    id: savedMessage.id,
+                    sender: "admin" as const,
+                    content: savedMessage.content,
+                    timestamp: savedMessage.created_at,
+                  }
+                : m
+            ),
+          };
+        });
+      }
+
+      if (warning) {
+        setSendError(warning);
+      }
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : "送信に失敗しました";
+      setSendError(errMsg);
+      // Remove optimistic message on failure
+      setThread((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          messages: prev.messages.filter((m) => m.id !== optimisticMsg.id),
+        };
+      });
+      // Restore the message text so user can retry
+      setMessage(content);
+    } finally {
+      setSending(false);
     }
   }
 
@@ -125,22 +156,47 @@ export default function ChatDetailPage() {
     const newMode = !isAiMode;
     setIsAiMode(newMode);
     try {
-      await fetch(`/api/chat/threads/${params.threadId}/mode`, {
+      const res = await fetch(`/api/chat/threads/${params.threadId}/mode`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ mode: newMode ? "ai" : "human" }),
       });
+      if (!res.ok) {
+        // Revert on failure
+        setIsAiMode(!newMode);
+      }
     } catch {
-      // Mode toggled optimistically
+      setIsAiMode(!newMode);
     }
   }
 
-  if (loading || !thread) {
+  if (loading) {
     return (
       <div className="flex h-[calc(100vh-8rem)] gap-4">
         <Skeleton className="flex-1" />
         <Skeleton className="w-80 hidden lg:block" />
       </div>
+    );
+  }
+
+  if (error || !thread) {
+    return (
+      <Card>
+        <CardContent className="flex flex-col items-center justify-center py-12 gap-4">
+          <AlertCircle className="h-12 w-12 text-destructive" />
+          <p className="text-sm text-destructive">{error || "会話が見つかりません"}</p>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={() => router.push("/dashboard/chat")} className="gap-2">
+              <ArrowLeft className="h-4 w-4" />
+              一覧に戻る
+            </Button>
+            <Button variant="outline" size="sm" onClick={fetchThread} className="gap-2">
+              <RefreshCw className="h-4 w-4" />
+              再読み込み
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
     );
   }
 
@@ -197,18 +253,31 @@ export default function ChatDetailPage() {
 
         {/* Messages */}
         <div className="flex-1 overflow-y-auto py-4 space-y-4">
-          {thread.messages.map((msg) => (
-            <ChatBubble
-              key={msg.id}
-              content={msg.content}
-              timestamp={msg.timestamp}
-              senderType={msg.sender}
-              senderName={msg.sender === "user" ? thread.customer.lineName : undefined}
-              senderAvatar={msg.sender === "user" ? thread.customer.lineAvatar : undefined}
-            />
-          ))}
+          {thread.messages.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
+              <p className="text-sm">メッセージはまだありません</p>
+            </div>
+          ) : (
+            thread.messages.map((msg) => (
+              <ChatBubble
+                key={msg.id}
+                content={msg.content}
+                timestamp={msg.timestamp}
+                senderType={msg.sender}
+                senderName={msg.sender === "user" ? thread.customer.lineName : undefined}
+                senderAvatar={msg.sender === "user" ? thread.customer.lineAvatar : undefined}
+              />
+            ))
+          )}
           <div ref={messagesEndRef} />
         </div>
+
+        {/* Send Error */}
+        {sendError && (
+          <div className="px-2 py-1 text-xs text-destructive bg-destructive/10 rounded">
+            {sendError}
+          </div>
+        )}
 
         {/* Input Area */}
         <div className="border-t pt-4">
@@ -229,9 +298,14 @@ export default function ChatDetailPage() {
                     handleSend();
                   }
                 }}
+                disabled={sending}
               />
-              <Button onClick={handleSend} disabled={!message.trim()}>
-                <Send className="h-4 w-4" />
+              <Button onClick={handleSend} disabled={!message.trim() || sending}>
+                {sending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Send className="h-4 w-4" />
+                )}
               </Button>
             </div>
           )}
@@ -276,11 +350,15 @@ export default function ChatDetailPage() {
                 タグ
               </p>
               <div className="flex flex-wrap gap-1">
-                {thread.customer.tags.map((tag) => (
-                  <Badge key={tag} variant="outline" className="text-xs">
-                    {tag}
-                  </Badge>
-                ))}
+                {thread.customer.tags.length > 0 ? (
+                  thread.customer.tags.map((tag) => (
+                    <Badge key={tag} variant="outline" className="text-xs">
+                      {tag}
+                    </Badge>
+                  ))
+                ) : (
+                  <p className="text-xs text-muted-foreground">タグなし</p>
+                )}
               </div>
             </div>
 

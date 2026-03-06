@@ -2,10 +2,10 @@
 
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
-import { MessageCircle, Bot, User, XCircle, Search } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { MessageCircle, Bot, User, XCircle, Search, AlertCircle, RefreshCw } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
@@ -19,65 +19,6 @@ interface ChatThread {
   unreadCount: number;
   status: "ai" | "human" | "closed";
 }
-
-const mockThreads: ChatThread[] = [
-  {
-    id: "thread_1",
-    customerName: "田中太郎",
-    lastMessage: "はい、お願いします！",
-    lastMessageAt: new Date(Date.now() - 1000 * 60 * 5).toISOString(),
-    unreadCount: 2,
-    status: "ai",
-  },
-  {
-    id: "thread_2",
-    customerName: "佐藤花子",
-    lastMessage: "メニューの写真を送っていただけますか？",
-    lastMessageAt: new Date(Date.now() - 1000 * 60 * 15).toISOString(),
-    unreadCount: 1,
-    status: "human",
-  },
-  {
-    id: "thread_3",
-    customerName: "鈴木一郎",
-    lastMessage: "ありがとうございました。また来ます。",
-    lastMessageAt: new Date(Date.now() - 1000 * 60 * 60).toISOString(),
-    unreadCount: 0,
-    status: "closed",
-  },
-  {
-    id: "thread_4",
-    customerName: "山田美咲",
-    lastMessage: "アレルギー対応は可能ですか？",
-    lastMessageAt: new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString(),
-    unreadCount: 3,
-    status: "ai",
-  },
-  {
-    id: "thread_5",
-    customerName: "高橋健太",
-    lastMessage: "予約の変更をお願いしたいのですが",
-    lastMessageAt: new Date(Date.now() - 1000 * 60 * 60 * 3).toISOString(),
-    unreadCount: 0,
-    status: "human",
-  },
-  {
-    id: "thread_6",
-    customerName: "渡辺優子",
-    lastMessage: "キャンセルポリシーを教えてください",
-    lastMessageAt: new Date(Date.now() - 1000 * 60 * 60 * 5).toISOString(),
-    unreadCount: 0,
-    status: "closed",
-  },
-  {
-    id: "thread_7",
-    customerName: "伊藤翔",
-    lastMessage: "コース料理の内容を確認したいです",
-    lastMessageAt: new Date(Date.now() - 1000 * 60 * 60 * 8).toISOString(),
-    unreadCount: 1,
-    status: "ai",
-  },
-];
 
 const statusConfig = {
   ai: { label: "AI対応中", icon: Bot, color: "bg-emerald-100 text-emerald-700" },
@@ -98,33 +39,46 @@ function formatTime(dateStr: string) {
 export default function ChatListPage() {
   const [threads, setThreads] = useState<ChatThread[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
 
-  useEffect(() => {
-    async function fetchThreads() {
-      try {
-        const res = await fetch("/api/chat/threads");
-        if (res.ok) {
-          const json = await res.json();
-          setThreads(json.threads || json);
-        } else {
-          setThreads(mockThreads);
-        }
-      } catch {
-        setThreads(mockThreads);
-      } finally {
-        setLoading(false);
-      }
-    }
-    fetchThreads();
-  }, []);
+  async function fetchThreads() {
+    setLoading(true);
+    setError(null);
+    try {
+      const params = new URLSearchParams();
+      if (statusFilter !== "all") params.set("status", statusFilter);
+      if (search) params.set("search", search);
 
-  const filtered = threads.filter((t) => {
-    const matchSearch = !search || t.customerName.includes(search) || t.lastMessage.includes(search);
-    const matchStatus = statusFilter === "all" || t.status === statusFilter;
-    return matchSearch && matchStatus;
-  });
+      const res = await fetch(`/api/chat/threads?${params.toString()}`);
+      if (!res.ok) {
+        throw new Error(`サーバーエラー (${res.status})`);
+      }
+      const json = await res.json();
+      setThreads(json.threads || []);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "会話の取得に失敗しました";
+      setError(message);
+      setThreads([]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    fetchThreads();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statusFilter]);
+
+  // Debounced search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetchThreads();
+    }, 300);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search]);
 
   if (loading) {
     return (
@@ -133,6 +87,21 @@ export default function ChatListPage() {
           <Skeleton key={i} className="h-20" />
         ))}
       </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <Card>
+        <CardContent className="flex flex-col items-center justify-center py-12 gap-4">
+          <AlertCircle className="h-12 w-12 text-destructive" />
+          <p className="text-sm text-destructive">{error}</p>
+          <Button variant="outline" size="sm" onClick={fetchThreads} className="gap-2">
+            <RefreshCw className="h-4 w-4" />
+            再読み込み
+          </Button>
+        </CardContent>
+      </Card>
     );
   }
 
@@ -169,7 +138,7 @@ export default function ChatListPage() {
 
       {/* Thread List */}
       <div className="space-y-2">
-        {filtered.length === 0 ? (
+        {threads.length === 0 ? (
           <Card>
             <CardContent className="flex flex-col items-center justify-center py-12">
               <MessageCircle className="h-12 w-12 text-muted-foreground/50" />
@@ -177,7 +146,7 @@ export default function ChatListPage() {
             </CardContent>
           </Card>
         ) : (
-          filtered.map((thread) => {
+          threads.map((thread) => {
             const StatusIcon = statusConfig[thread.status].icon;
             return (
               <Link key={thread.id} href={`/dashboard/chat/${thread.id}`}>

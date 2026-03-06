@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
-import { Plus, MoreHorizontal, Send, Clock, Eye, Trash2 } from "lucide-react";
+import { Plus, Eye, Trash2, RefreshCw } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -15,77 +15,54 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { cn } from "@/lib/utils";
+
+interface DeliveryStats {
+  sent: number;
+  failed: number;
+  total: number;
+}
 
 interface Broadcast {
   id: string;
   title: string;
-  targetSegment: string;
-  status: "draft" | "scheduled" | "sent" | "failed";
-  sentCount: number;
-  totalTarget: number;
-  scheduledAt: string | null;
-  createdAt: string;
+  message_type: string;
+  target_filter: Record<string, unknown> | null;
+  target_count: number;
+  sent_count: number;
+  failed_count: number;
+  status: "draft" | "scheduled" | "sending" | "completed" | "failed";
+  scheduled_at: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+  delivery_stats: DeliveryStats;
 }
 
-const statusConfig: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
+interface PaginationInfo {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+}
+
+const statusConfig: Record<
+  string,
+  { label: string; variant: "default" | "secondary" | "destructive" | "outline" }
+> = {
   draft: { label: "下書き", variant: "outline" },
   scheduled: { label: "配信予定", variant: "secondary" },
-  sent: { label: "配信済み", variant: "default" },
+  sending: { label: "配信中", variant: "secondary" },
+  completed: { label: "配信済み", variant: "default" },
   failed: { label: "失敗", variant: "destructive" },
 };
 
-const mockBroadcasts: Broadcast[] = [
-  {
-    id: "bc_1",
-    title: "週末限定ディナーコースのご案内",
-    targetSegment: "VIP会員",
-    status: "sent",
-    sentCount: 245,
-    totalTarget: 250,
-    scheduledAt: null,
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 2).toISOString(),
-  },
-  {
-    id: "bc_2",
-    title: "3月のイベント情報",
-    targetSegment: "全顧客",
-    status: "scheduled",
-    sentCount: 0,
-    totalTarget: 1248,
-    scheduledAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 2).toISOString(),
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString(),
-  },
-  {
-    id: "bc_3",
-    title: "お誕生日おめでとうございます",
-    targetSegment: "誕生日月",
-    status: "sent",
-    sentCount: 32,
-    totalTarget: 32,
-    scheduledAt: null,
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 5).toISOString(),
-  },
-  {
-    id: "bc_4",
-    title: "新メニューのお知らせ",
-    targetSegment: "常連",
-    status: "draft",
-    sentCount: 0,
-    totalTarget: 520,
-    scheduledAt: null,
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 3).toISOString(),
-  },
-  {
-    id: "bc_5",
-    title: "年末特別キャンペーン",
-    targetSegment: "全顧客",
-    status: "failed",
-    sentCount: 800,
-    totalTarget: 1200,
-    scheduledAt: null,
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 30).toISOString(),
-  },
+const statusFilters = [
+  { value: "all", label: "すべて" },
+  { value: "draft", label: "下書き" },
+  { value: "scheduled", label: "配信予定" },
+  { value: "sending", label: "配信中" },
+  { value: "completed", label: "配信済み" },
+  { value: "failed", label: "失敗" },
 ];
 
 function formatDate(dateStr: string | null) {
@@ -99,28 +76,81 @@ function formatDate(dateStr: string | null) {
   });
 }
 
+function formatTargetFilter(filter: Record<string, unknown> | null): string {
+  if (!filter || Object.keys(filter).length === 0) return "全顧客";
+  const parts: string[] = [];
+  if (filter.membership_tier) {
+    parts.push(String(filter.membership_tier));
+  }
+  if (filter.tags && Array.isArray(filter.tags)) {
+    parts.push(...(filter.tags as string[]));
+  }
+  return parts.length > 0 ? parts.join(", ") : "全顧客";
+}
+
 export default function MessagesPage() {
   const [broadcasts, setBroadcasts] = useState<Broadcast[]>([]);
   const [loading, setLoading] = useState(true);
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [pagination, setPagination] = useState<PaginationInfo>({
+    page: 1,
+    limit: 20,
+    total: 0,
+    totalPages: 0,
+  });
+  const [deleting, setDeleting] = useState<string | null>(null);
 
-  useEffect(() => {
-    async function fetchBroadcasts() {
+  const fetchBroadcasts = useCallback(
+    async (page = 1) => {
+      setLoading(true);
       try {
-        const res = await fetch("/api/broadcasts");
+        const params = new URLSearchParams({
+          page: String(page),
+          limit: "20",
+        });
+        if (statusFilter !== "all") {
+          params.set("status", statusFilter);
+        }
+        const res = await fetch(`/api/broadcast?${params}`);
         if (res.ok) {
           const json = await res.json();
-          setBroadcasts(json.broadcasts || json);
-        } else {
-          setBroadcasts(mockBroadcasts);
+          setBroadcasts(json.broadcasts ?? []);
+          setPagination(
+            json.pagination ?? {
+              page: 1,
+              limit: 20,
+              total: 0,
+              totalPages: 0,
+            }
+          );
         }
-      } catch {
-        setBroadcasts(mockBroadcasts);
+      } catch (err) {
+        console.error("Failed to fetch broadcasts:", err);
       } finally {
         setLoading(false);
       }
+    },
+    [statusFilter]
+  );
+
+  useEffect(() => {
+    fetchBroadcasts(1);
+  }, [fetchBroadcasts]);
+
+  async function handleDelete(id: string) {
+    if (!confirm("この下書きを削除しますか？")) return;
+    setDeleting(id);
+    try {
+      const res = await fetch(`/api/broadcast/${id}`, { method: "DELETE" });
+      if (res.ok) {
+        setBroadcasts((prev) => prev.filter((b) => b.id !== id));
+      }
+    } catch (err) {
+      console.error("Failed to delete broadcast:", err);
+    } finally {
+      setDeleting(null);
     }
-    fetchBroadcasts();
-  }, []);
+  }
 
   if (loading) {
     return (
@@ -135,13 +165,42 @@ export default function MessagesPage() {
     <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">{broadcasts.length} 件のメッセージ</p>
+        <div className="flex items-center gap-3">
+          <p className="text-sm text-muted-foreground">
+            {pagination.total} 件のメッセージ
+          </p>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={() => fetchBroadcasts(pagination.page)}
+          >
+            <RefreshCw className="h-4 w-4" />
+          </Button>
+        </div>
         <Link href="/dashboard/messages/new">
           <Button className="gap-2">
             <Plus className="h-4 w-4" />
             新規作成
           </Button>
         </Link>
+      </div>
+
+      {/* Status filter */}
+      <div className="flex gap-2 flex-wrap">
+        {statusFilters.map((f) => (
+          <button
+            key={f.value}
+            onClick={() => setStatusFilter(f.value)}
+            className={`rounded-full border px-3 py-1 text-sm font-medium transition-colors ${
+              statusFilter === f.value
+                ? "border-primary bg-primary text-primary-foreground"
+                : "border-input bg-background hover:bg-accent"
+            }`}
+          >
+            {f.label}
+          </button>
+        ))}
       </div>
 
       {/* Table */}
@@ -159,46 +218,106 @@ export default function MessagesPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {broadcasts.map((bc) => {
-                const config = statusConfig[bc.status];
-                return (
-                  <TableRow key={bc.id}>
-                    <TableCell className="font-medium">{bc.title}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline">{bc.targetSegment}</Badge>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={config.variant}>{config.label}</Badge>
-                    </TableCell>
-                    <TableCell>
-                      <span className="text-sm">
-                        {bc.sentCount.toLocaleString()} / {bc.totalTarget.toLocaleString()}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {bc.status === "scheduled"
-                        ? formatDate(bc.scheduledAt)
-                        : formatDate(bc.createdAt)}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <Button variant="ghost" size="icon" className="h-8 w-8">
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                        {bc.status === "draft" && (
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive">
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
+              {broadcasts.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                    メッセージがありません
+                  </TableCell>
+                </TableRow>
+              ) : (
+                broadcasts.map((bc) => {
+                  const config = statusConfig[bc.status] || statusConfig.draft;
+                  const sentCount =
+                    bc.delivery_stats?.sent ?? bc.sent_count ?? 0;
+                  const totalTarget = bc.target_count ?? 0;
+                  const failedCount =
+                    bc.delivery_stats?.failed ?? bc.failed_count ?? 0;
+
+                  return (
+                    <TableRow key={bc.id}>
+                      <TableCell className="font-medium">{bc.title}</TableCell>
+                      <TableCell>
+                        <Badge variant="outline">
+                          {formatTargetFilter(bc.target_filter)}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={config.variant}>{config.label}</Badge>
+                      </TableCell>
+                      <TableCell>
+                        <span className="text-sm">
+                          {sentCount.toLocaleString()} / {totalTarget.toLocaleString()}
+                        </span>
+                        {failedCount > 0 && (
+                          <span className="text-xs text-destructive ml-1">
+                            ({failedCount} 失敗)
+                          </span>
                         )}
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {bc.status === "scheduled"
+                          ? formatDate(bc.scheduled_at)
+                          : bc.status === "completed" || bc.status === "failed"
+                          ? formatDate(bc.completed_at)
+                          : formatDate(bc.created_at)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <Link href={`/dashboard/messages/${bc.id}`}>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8"
+                            >
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                          </Link>
+                          {bc.status === "draft" && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-destructive"
+                              disabled={deleting === bc.id}
+                              onClick={() => handleDelete(bc.id)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
+              )}
             </TableBody>
           </Table>
         </CardContent>
       </Card>
+
+      {/* Pagination */}
+      {pagination.totalPages > 1 && (
+        <div className="flex items-center justify-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={pagination.page <= 1}
+            onClick={() => fetchBroadcasts(pagination.page - 1)}
+          >
+            前へ
+          </Button>
+          <span className="text-sm text-muted-foreground">
+            {pagination.page} / {pagination.totalPages}
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={pagination.page >= pagination.totalPages}
+            onClick={() => fetchBroadcasts(pagination.page + 1)}
+          >
+            次へ
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

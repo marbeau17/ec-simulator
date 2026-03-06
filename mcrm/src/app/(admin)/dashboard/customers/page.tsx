@@ -1,12 +1,11 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
-import { Search, Filter, ChevronLeft, ChevronRight, MoreHorizontal, Eye } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Search, Filter, ChevronLeft, ChevronRight, Eye, AlertCircle } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -29,11 +28,37 @@ interface Customer {
   messageCount: number;
 }
 
+interface Pagination {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+}
+
+interface CustomersResponse {
+  customers: Customer[];
+  allTags: string[];
+  allMembershipTiers: string[];
+  pagination: Pagination;
+}
+
 const membershipColors: Record<string, string> = {
+  premium: "bg-amber-100 text-amber-800 border-amber-200",
+  standard: "bg-yellow-100 text-yellow-800 border-yellow-200",
+  light: "bg-gray-100 text-gray-800 border-gray-200",
+  free: "bg-blue-100 text-blue-800 border-blue-200",
+  // Legacy tiers
   VIP: "bg-amber-100 text-amber-800 border-amber-200",
   Gold: "bg-yellow-100 text-yellow-800 border-yellow-200",
   Silver: "bg-gray-100 text-gray-800 border-gray-200",
   Regular: "bg-blue-100 text-blue-800 border-blue-200",
+};
+
+const membershipLabels: Record<string, string> = {
+  free: "フリー",
+  light: "ライト",
+  standard: "スタンダード",
+  premium: "プレミアム",
 };
 
 const tagColors = [
@@ -44,26 +69,18 @@ const tagColors = [
   "bg-cyan-100 text-cyan-800",
 ];
 
-const mockCustomers: Customer[] = Array.from({ length: 50 }, (_, i) => ({
-  id: `cust_${i + 1}`,
-  lineName: ["田中太郎", "佐藤花子", "鈴木一郎", "山田美咲", "高橋健太", "渡辺優子", "伊藤翔", "中村美月", "小林大輝", "加藤さくら"][i % 10],
-  lineAvatar: undefined,
-  tags: [["常連", "VIP対象"], ["新規", "イベント参加"], ["常連", "誕生日月"], ["新規"], ["常連", "VIP対象", "イベント参加"]][i % 5],
-  membershipTier: ["VIP", "Gold", "Silver", "Regular"][i % 4],
-  lastInteraction: new Date(Date.now() - 1000 * 60 * 60 * (i * 3 + 1)).toISOString(),
-  messageCount: Math.floor(Math.random() * 100) + 1,
-}));
+const PAGE_SIZE = 20;
 
 function formatDate(dateStr: string) {
   const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return "-";
   return d.toLocaleDateString("ja-JP", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
-const PAGE_SIZE = 10;
-
 export default function CustomersPage() {
-  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [data, setData] = useState<CustomersResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [tagFilter, setTagFilter] = useState("");
   const [membershipFilter, setMembershipFilter] = useState("");
@@ -71,54 +88,59 @@ export default function CustomersPage() {
   const [showTagDropdown, setShowTagDropdown] = useState(false);
   const [showMembershipDropdown, setShowMembershipDropdown] = useState(false);
 
+  // Debounced search value
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+
   useEffect(() => {
-    async function fetchCustomers() {
-      try {
-        const res = await fetch("/api/customers");
-        if (res.ok) {
-          const json = await res.json();
-          setCustomers(json.customers || json);
-        } else {
-          setCustomers(mockCustomers);
-        }
-      } catch {
-        setCustomers(mockCustomers);
-      } finally {
-        setLoading(false);
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search);
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  const fetchCustomers = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const params = new URLSearchParams();
+      params.set("page", String(page));
+      params.set("limit", String(PAGE_SIZE));
+      if (debouncedSearch) params.set("search", debouncedSearch);
+      if (membershipFilter) params.set("membership_tier", membershipFilter);
+      if (tagFilter) params.set("tag", tagFilter);
+
+      const res = await fetch(`/api/customers?${params.toString()}`);
+      if (!res.ok) {
+        throw new Error(`API returned ${res.status}`);
       }
+      const json: CustomersResponse = await res.json();
+      setData(json);
+    } catch (err) {
+      console.error("Failed to fetch customers:", err);
+      setError("顧客データの取得に失敗しました。");
+    } finally {
+      setLoading(false);
     }
+  }, [page, debouncedSearch, membershipFilter, tagFilter]);
+
+  useEffect(() => {
     fetchCustomers();
-  }, []);
+  }, [fetchCustomers]);
 
-  const allTags = useMemo(() => {
-    const tags = new Set<string>();
-    customers.forEach((c) => c.tags.forEach((t) => tags.add(t)));
-    return Array.from(tags);
-  }, [customers]);
+  const customers = data?.customers ?? [];
+  const pagination = data?.pagination ?? { page: 1, limit: PAGE_SIZE, total: 0, totalPages: 0 };
+  const allTags = data?.allTags ?? [];
+  const allMembershipTiers = data?.allMembershipTiers ?? [];
 
-  const allMemberships = useMemo(() => {
-    const m = new Set<string>();
-    customers.forEach((c) => m.add(c.membershipTier));
-    return Array.from(m);
-  }, [customers]);
-
-  const filtered = useMemo(() => {
-    return customers.filter((c) => {
-      const matchSearch = !search || c.lineName.toLowerCase().includes(search.toLowerCase());
-      const matchTag = !tagFilter || c.tags.includes(tagFilter);
-      const matchMembership = !membershipFilter || c.membershipTier === membershipFilter;
-      return matchSearch && matchTag && matchMembership;
-    });
-  }, [customers, search, tagFilter, membershipFilter]);
-
-  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
-  const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-
-  if (loading) {
+  if (error && !data) {
     return (
-      <div className="space-y-4">
-        <Skeleton className="h-10 w-full" />
-        <Skeleton className="h-96 w-full" />
+      <div className="flex flex-col items-center justify-center py-16 text-center">
+        <AlertCircle className="h-10 w-10 text-destructive mb-4" />
+        <p className="text-lg font-medium">{error}</p>
+        <Button variant="outline" className="mt-4" onClick={fetchCustomers}>
+          再試行
+        </Button>
       </div>
     );
   }
@@ -132,7 +154,7 @@ export default function CustomersPage() {
           <Input
             placeholder="顧客名で検索..."
             value={search}
-            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+            onChange={(e) => setSearch(e.target.value)}
             className="pl-9"
           />
         </div>
@@ -151,7 +173,7 @@ export default function CustomersPage() {
           {showTagDropdown && (
             <>
               <div className="fixed inset-0 z-40" onClick={() => setShowTagDropdown(false)} />
-              <div className="absolute right-0 top-full z-50 mt-1 w-44 rounded-md border bg-background p-1 shadow-lg">
+              <div className="absolute right-0 top-full z-50 mt-1 w-44 rounded-md border bg-background p-1 shadow-lg max-h-60 overflow-y-auto">
                 <button
                   className="flex w-full items-center rounded-sm px-3 py-2 text-sm hover:bg-accent"
                   onClick={() => { setTagFilter(""); setShowTagDropdown(false); setPage(1); }}
@@ -184,7 +206,7 @@ export default function CustomersPage() {
             className="gap-2"
           >
             <Filter className="h-4 w-4" />
-            {membershipFilter || "会員ランク"}
+            {membershipFilter ? (membershipLabels[membershipFilter] || membershipFilter) : "会員ランク"}
           </Button>
           {showMembershipDropdown && (
             <>
@@ -196,7 +218,7 @@ export default function CustomersPage() {
                 >
                   すべて
                 </button>
-                {allMemberships.map((m) => (
+                {allMembershipTiers.map((m) => (
                   <button
                     key={m}
                     className={cn(
@@ -205,7 +227,7 @@ export default function CustomersPage() {
                     )}
                     onClick={() => { setMembershipFilter(m); setShowMembershipDropdown(false); setPage(1); }}
                   >
-                    {m}
+                    {membershipLabels[m] || m}
                   </button>
                 ))}
               </div>
@@ -228,90 +250,129 @@ export default function CustomersPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {paginated.map((customer) => (
-                <TableRow key={customer.id}>
-                  <TableCell>
-                    <div className="flex items-center gap-3">
-                      <Avatar className="h-9 w-9">
-                        <AvatarImage src={customer.lineAvatar} alt={customer.lineName} />
-                        <AvatarFallback>{customer.lineName.slice(0, 2)}</AvatarFallback>
-                      </Avatar>
-                      <div>
-                        <p className="text-sm font-medium">{customer.lineName}</p>
-                        <p className="text-xs text-muted-foreground">{customer.messageCount} メッセージ</p>
+              {loading ? (
+                Array.from({ length: 5 }).map((_, i) => (
+                  <TableRow key={i}>
+                    <TableCell>
+                      <div className="flex items-center gap-3">
+                        <Skeleton className="h-9 w-9 rounded-full" />
+                        <div className="space-y-1">
+                          <Skeleton className="h-4 w-24" />
+                          <Skeleton className="h-3 w-16" />
+                        </div>
                       </div>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex flex-wrap gap-1">
-                      {customer.tags.map((tag, idx) => (
-                        <span
-                          key={tag}
-                          className={cn(
-                            "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
-                            tagColors[idx % tagColors.length]
-                          )}
-                        >
-                          {tag}
-                        </span>
-                      ))}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <span
-                      className={cn(
-                        "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold",
-                        membershipColors[customer.membershipTier] || "bg-muted"
-                      )}
-                    >
-                      {customer.membershipTier}
-                    </span>
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {formatDate(customer.lastInteraction)}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <Link href={`/dashboard/customers/${customer.id}`}>
-                      <Button variant="ghost" size="sm" className="gap-1">
-                        <Eye className="h-4 w-4" />
-                        詳細
-                      </Button>
-                    </Link>
+                    </TableCell>
+                    <TableCell><Skeleton className="h-5 w-20" /></TableCell>
+                    <TableCell><Skeleton className="h-5 w-16" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-28" /></TableCell>
+                    <TableCell><Skeleton className="h-8 w-16 ml-auto" /></TableCell>
+                  </TableRow>
+                ))
+              ) : customers.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                    該当する顧客が見つかりません
                   </TableCell>
                 </TableRow>
-              ))}
+              ) : (
+                customers.map((customer) => (
+                  <TableRow key={customer.id}>
+                    <TableCell>
+                      <div className="flex items-center gap-3">
+                        <Avatar className="h-9 w-9">
+                          <AvatarImage src={customer.lineAvatar} alt={customer.lineName} />
+                          <AvatarFallback>{customer.lineName.slice(0, 2)}</AvatarFallback>
+                        </Avatar>
+                        <div>
+                          <p className="text-sm font-medium">{customer.lineName}</p>
+                          <p className="text-xs text-muted-foreground">{customer.messageCount} メッセージ</p>
+                        </div>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap gap-1">
+                        {customer.tags.map((tag, idx) => (
+                          <span
+                            key={tag}
+                            className={cn(
+                              "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
+                              tagColors[idx % tagColors.length]
+                            )}
+                          >
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <span
+                        className={cn(
+                          "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold",
+                          membershipColors[customer.membershipTier] || "bg-muted"
+                        )}
+                      >
+                        {membershipLabels[customer.membershipTier] || customer.membershipTier}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {customer.lastInteraction ? formatDate(customer.lastInteraction) : "-"}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Link href={`/dashboard/customers/${customer.id}`}>
+                        <Button variant="ghost" size="sm" className="gap-1">
+                          <Eye className="h-4 w-4" />
+                          詳細
+                        </Button>
+                      </Link>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
             </TableBody>
           </Table>
         </CardContent>
       </Card>
 
       {/* Pagination */}
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">
-          {filtered.length} 件中 {(page - 1) * PAGE_SIZE + 1}-{Math.min(page * PAGE_SIZE, filtered.length)} 件表示
-        </p>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="icon"
-            disabled={page <= 1}
-            onClick={() => setPage(page - 1)}
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </Button>
-          <span className="text-sm">
-            {page} / {totalPages}
-          </span>
-          <Button
-            variant="outline"
-            size="icon"
-            disabled={page >= totalPages}
-            onClick={() => setPage(page + 1)}
-          >
-            <ChevronRight className="h-4 w-4" />
+      {!loading && pagination.total > 0 && (
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-muted-foreground">
+            {pagination.total} 件中 {(pagination.page - 1) * pagination.limit + 1}-{Math.min(pagination.page * pagination.limit, pagination.total)} 件表示
+          </p>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="icon"
+              disabled={pagination.page <= 1}
+              onClick={() => setPage(page - 1)}
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <span className="text-sm">
+              {pagination.page} / {pagination.totalPages}
+            </span>
+            <Button
+              variant="outline"
+              size="icon"
+              disabled={pagination.page >= pagination.totalPages}
+              onClick={() => setPage(page + 1)}
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Error banner (when we have stale data but a fetch failed) */}
+      {error && data && (
+        <div className="rounded-md bg-destructive/10 border border-destructive/20 p-3 text-sm text-destructive flex items-center gap-2">
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          {error}
+          <Button variant="outline" size="sm" className="ml-auto" onClick={fetchCustomers}>
+            再試行
           </Button>
         </div>
-      </div>
+      )}
     </div>
   );
 }

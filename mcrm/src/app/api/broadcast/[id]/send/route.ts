@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { lineClient } from "@/lib/line/client";
+import type { messagingApi } from "@line/bot-sdk";
 
 interface RouteContext {
   params: Promise<{ id: string }>;
@@ -22,7 +23,7 @@ export async function POST(
 
   // Fetch the broadcast job
   const { data: broadcast, error: fetchError } = await supabase
-    .from("broadcasts")
+    .from("broadcast_jobs")
     .select("*")
     .eq("id", id)
     .single();
@@ -34,7 +35,7 @@ export async function POST(
     );
   }
 
-  if (broadcast.status === "sent" || broadcast.status === "sending") {
+  if (broadcast.status === "completed" || broadcast.status === "sending") {
     return NextResponse.json(
       { error: `Broadcast already ${broadcast.status}` },
       { status: 400 }
@@ -43,7 +44,7 @@ export async function POST(
 
   // Mark as sending
   await supabase
-    .from("broadcasts")
+    .from("broadcast_jobs")
     .update({ status: "sending", started_at: new Date().toISOString() })
     .eq("id", id);
 
@@ -51,18 +52,54 @@ export async function POST(
     // Build target user query based on filter
     let userQuery = supabase
       .from("users")
-      .select("line_uid")
-      .eq("line_follow_status", "following")
-      .not("line_uid", "is", null);
+      .select("id, line_user_id")
+      .eq("is_followed", true)
+      .not("line_user_id", "is", null);
 
-    const filter = broadcast.target_filter as Record<string, string> | null;
+    const filter = broadcast.target_filter as Record<string, unknown> | null;
 
     if (filter) {
       if (filter.membership_tier) {
-        userQuery = userQuery.eq("membership_tier", filter.membership_tier);
+        userQuery = userQuery.eq(
+          "membership_tier",
+          filter.membership_tier as string
+        );
       }
-      if (filter.tag) {
-        userQuery = userQuery.contains("tags", [filter.tag]);
+      if (filter.tags && Array.isArray(filter.tags)) {
+        // Get user IDs that have any of the specified tags
+        const { data: tagRows } = await supabase
+          .from("tags")
+          .select("id")
+          .in("name", filter.tags as string[]);
+
+        if (tagRows && tagRows.length > 0) {
+          const tagIds = tagRows.map((t) => t.id);
+          const { data: userTagRows } = await supabase
+            .from("user_tags")
+            .select("user_id")
+            .in("tag_id", tagIds);
+
+          if (userTagRows && userTagRows.length > 0) {
+            const userIds = [...new Set(userTagRows.map((ut) => ut.user_id))];
+            userQuery = userQuery.in("id", userIds);
+          } else {
+            // No users match the tag filter
+            await supabase
+              .from("broadcast_jobs")
+              .update({
+                status: "completed",
+                completed_at: new Date().toISOString(),
+                target_count: 0,
+                sent_count: 0,
+                failed_count: 0,
+              })
+              .eq("id", id);
+
+            return NextResponse.json({
+              data: { broadcast_id: id, total: 0, sent: 0, failed: 0 },
+            });
+          }
+        }
       }
     }
 
@@ -72,19 +109,19 @@ export async function POST(
       throw new Error(`Failed to query target users: ${userError.message}`);
     }
 
-    const lineUids = (users ?? [])
-      .map((u) => u.line_uid)
-      .filter((uid): uid is string => uid !== null);
+    const targetUsers = (users ?? []).filter(
+      (u) => u.line_user_id !== null
+    ) as Array<{ id: string; line_user_id: string }>;
 
-    if (lineUids.length === 0) {
+    if (targetUsers.length === 0) {
       await supabase
-        .from("broadcasts")
+        .from("broadcast_jobs")
         .update({
-          status: "sent",
+          status: "completed",
           completed_at: new Date().toISOString(),
-          total_recipients: 0,
-          success_count: 0,
-          failure_count: 0,
+          target_count: 0,
+          sent_count: 0,
+          failed_count: 0,
         })
         .eq("id", id);
 
@@ -93,89 +130,105 @@ export async function POST(
       });
     }
 
-    // Prepare message
-    const messages: Array<{ type: "text"; text: string }> = [
-      {
-        type: "text",
-        text: broadcast.message_text || "",
-      },
-    ];
+    // Prepare message from message_content
+    const content = broadcast.message_content as Record<string, unknown>;
+    let messages: messagingApi.Message[];
+
+    if (broadcast.message_type === "flex" && content.flex) {
+      messages = [
+        {
+          type: "flex",
+          altText: (content.altText as string) || broadcast.title,
+          contents: content.flex,
+        } as messagingApi.FlexMessage,
+      ];
+    } else {
+      messages = [
+        {
+          type: "text",
+          text: (content.text as string) || "",
+        },
+      ];
+    }
 
     // Send in batches of 500 (LINE Multicast API limit)
     const BATCH_SIZE = 500;
-    let successCount = 0;
-    let failureCount = 0;
+    let sentCount = 0;
+    let failedCount = 0;
 
-    for (let i = 0; i < lineUids.length; i += BATCH_SIZE) {
-      const batch = lineUids.slice(i, i + BATCH_SIZE);
+    for (let i = 0; i < targetUsers.length; i += BATCH_SIZE) {
+      const batch = targetUsers.slice(i, i + BATCH_SIZE);
+      const lineUids = batch.map((u) => u.line_user_id);
 
       try {
         await lineClient.multicast({
-          to: batch,
+          to: lineUids,
           messages,
         });
 
-        successCount += batch.length;
+        sentCount += batch.length;
 
-        // Log success for this batch
-        await supabase.from("broadcast_logs").insert({
-          broadcast_id: id,
-          batch_index: Math.floor(i / BATCH_SIZE),
-          recipient_count: batch.length,
-          status: "success",
+        // Log success for each user in this batch
+        const logEntries = batch.map((u) => ({
+          broadcast_job_id: id,
+          user_id: u.id,
+          status: "sent" as const,
           sent_at: new Date().toISOString(),
-        });
+        }));
+
+        await supabase.from("broadcast_logs").insert(logEntries);
       } catch (batchError) {
         console.error(
           `Broadcast batch ${Math.floor(i / BATCH_SIZE)} failed:`,
           batchError
         );
-        failureCount += batch.length;
+        failedCount += batch.length;
 
-        // Log failure for this batch
-        await supabase.from("broadcast_logs").insert({
-          broadcast_id: id,
-          batch_index: Math.floor(i / BATCH_SIZE),
-          recipient_count: batch.length,
-          status: "failed",
+        // Log failure for each user in this batch
+        const logEntries = batch.map((u) => ({
+          broadcast_job_id: id,
+          user_id: u.id,
+          status: "failed" as const,
           error_message:
             batchError instanceof Error
               ? batchError.message
               : "Unknown error",
           sent_at: new Date().toISOString(),
-        });
+        }));
+
+        await supabase.from("broadcast_logs").insert(logEntries);
       }
     }
 
-    // Update broadcast status
+    // Update broadcast job final status
+    const finalStatus = sentCount === 0 ? "failed" : "completed";
+
     await supabase
-      .from("broadcasts")
+      .from("broadcast_jobs")
       .update({
-        status: "sent",
+        status: finalStatus,
         completed_at: new Date().toISOString(),
-        total_recipients: lineUids.length,
-        success_count: successCount,
-        failure_count: failureCount,
+        target_count: targetUsers.length,
+        sent_count: sentCount,
+        failed_count: failedCount,
       })
       .eq("id", id);
 
     return NextResponse.json({
       data: {
         broadcast_id: id,
-        total: lineUids.length,
-        sent: successCount,
-        failed: failureCount,
+        total: targetUsers.length,
+        sent: sentCount,
+        failed: failedCount,
       },
     });
   } catch (error) {
     console.error("Broadcast execution failed:", error);
 
     await supabase
-      .from("broadcasts")
+      .from("broadcast_jobs")
       .update({
         status: "failed",
-        error_message:
-          error instanceof Error ? error.message : "Unknown error",
         completed_at: new Date().toISOString(),
       })
       .eq("id", id);

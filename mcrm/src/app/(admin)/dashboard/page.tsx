@@ -1,10 +1,9 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Users, MessageCircle, CalendarCheck, Calendar, Bot, TrendingUp, UserPlus, Mail } from "lucide-react";
+import { Users, MessageCircle, CalendarCheck, Calendar, Bot, TrendingUp, UserPlus, Mail, AlertCircle } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { KpiCard } from "@/components/admin/kpi-card";
 import {
@@ -49,95 +48,6 @@ interface DashboardData {
   }>;
 }
 
-const defaultData: DashboardData = {
-  kpi: {
-    totalCustomers: 1248,
-    customerChange: 12.5,
-    monthlyMessages: 3420,
-    messageChange: 8.2,
-    reservationsThisMonth: 156,
-    reservationChange: -3.1,
-    activeEvents: 4,
-    eventChange: 33.3,
-  },
-  insights: [
-    {
-      id: "1",
-      title: "リピーター率の上昇",
-      summary: "過去30日間でリピーター率が15%上昇しています。VIP顧客向けの特別キャンペーンが効果的でした。",
-      priority: "high",
-      createdAt: new Date().toISOString(),
-    },
-    {
-      id: "2",
-      title: "週末予約の増加傾向",
-      summary: "土日の予約が平日と比較して40%増加しています。週末限定メニューの導入を推奨します。",
-      priority: "medium",
-      createdAt: new Date().toISOString(),
-    },
-    {
-      id: "3",
-      title: "チャット応答時間の改善",
-      summary: "AI自動応答の導入により、平均応答時間が5分から30秒に短縮されました。",
-      priority: "low",
-      createdAt: new Date().toISOString(),
-    },
-  ],
-  customerGrowth: [
-    { month: "10月", count: 980 },
-    { month: "11月", count: 1050 },
-    { month: "12月", count: 1120 },
-    { month: "1月", count: 1150 },
-    { month: "2月", count: 1200 },
-    { month: "3月", count: 1248 },
-  ],
-  messageVolume: [
-    { date: "月", count: 120 },
-    { date: "火", count: 150 },
-    { date: "水", count: 180 },
-    { date: "木", count: 130 },
-    { date: "金", count: 200 },
-    { date: "土", count: 280 },
-    { date: "日", count: 250 },
-  ],
-  recentActivity: [
-    {
-      id: "1",
-      type: "follow",
-      description: "新規フォロー",
-      timestamp: new Date(Date.now() - 1000 * 60 * 5).toISOString(),
-      customerName: "田中太郎",
-    },
-    {
-      id: "2",
-      type: "message",
-      description: "メッセージを送信しました",
-      timestamp: new Date(Date.now() - 1000 * 60 * 15).toISOString(),
-      customerName: "佐藤花子",
-    },
-    {
-      id: "3",
-      type: "reservation",
-      description: "予約を作成しました",
-      timestamp: new Date(Date.now() - 1000 * 60 * 30).toISOString(),
-      customerName: "鈴木一郎",
-    },
-    {
-      id: "4",
-      type: "message",
-      description: "AI自動応答で対応しました",
-      timestamp: new Date(Date.now() - 1000 * 60 * 45).toISOString(),
-      customerName: "山田美咲",
-    },
-    {
-      id: "5",
-      type: "follow",
-      description: "新規フォロー",
-      timestamp: new Date(Date.now() - 1000 * 60 * 60).toISOString(),
-      customerName: "高橋健太",
-    },
-  ],
-};
 
 function priorityColor(priority: string) {
   switch (priority) {
@@ -186,19 +96,23 @@ function formatTimeAgo(timestamp: string) {
 export default function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     async function fetchData() {
       try {
         const res = await fetch("/api/dashboard");
-        if (res.ok) {
-          const json = await res.json();
-          setData(json);
-        } else {
-          setData(defaultData);
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.error || `API returned ${res.status}`);
         }
-      } catch {
-        setData(defaultData);
+        const json = await res.json();
+        setData(json);
+      } catch (err) {
+        console.error("Failed to load dashboard data:", err);
+        setError(
+          err instanceof Error ? err.message : "ダッシュボードデータの取得に失敗しました"
+        );
       } finally {
         setLoading(false);
       }
@@ -206,7 +120,7 @@ export default function DashboardPage() {
     fetchData();
   }, []);
 
-  if (loading || !data) {
+  if (loading) {
     return (
       <div className="space-y-6">
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -223,6 +137,41 @@ export default function DashboardPage() {
           <Skeleton className="h-80" />
           <Skeleton className="h-80" />
         </div>
+      </div>
+    );
+  }
+
+  if (error || !data) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 space-y-4">
+        <AlertCircle className="h-12 w-12 text-destructive" />
+        <h2 className="text-lg font-semibold">データの読み込みに失敗しました</h2>
+        <p className="text-sm text-muted-foreground max-w-md text-center">
+          {error || "ダッシュボードデータの取得に失敗しました"}
+        </p>
+        <button
+          onClick={() => {
+            setError(null);
+            setLoading(true);
+            fetch("/api/dashboard")
+              .then((res) => {
+                if (!res.ok) throw new Error(`API returned ${res.status}`);
+                return res.json();
+              })
+              .then((json) => setData(json))
+              .catch((err) =>
+                setError(
+                  err instanceof Error
+                    ? err.message
+                    : "ダッシュボードデータの取得に失敗しました"
+                )
+              )
+              .finally(() => setLoading(false));
+          }}
+          className="px-4 py-2 text-sm font-medium rounded-md bg-primary text-primary-foreground hover:bg-primary/90"
+        >
+          再試行
+        </button>
       </div>
     );
   }

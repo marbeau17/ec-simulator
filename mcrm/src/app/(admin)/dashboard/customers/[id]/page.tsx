@@ -2,8 +2,8 @@
 
 import React, { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, Bot, MessageCircle, CalendarCheck, Tag, Star, Clock } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { ArrowLeft, Bot, MessageCircle, CalendarCheck, Tag, Star, Clock, AlertCircle } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -41,39 +41,17 @@ interface CustomerDetail {
   }>;
 }
 
-const mockCustomer: CustomerDetail = {
-  id: "cust_1",
-  lineName: "田中太郎",
-  lineUid: "U1234567890abcdef",
-  membershipTier: "VIP",
-  tags: ["常連", "VIP対象", "誕生日月", "ワイン好き"],
-  followedAt: "2024-06-15T10:00:00Z",
-  lastInteraction: new Date(Date.now() - 1000 * 60 * 30).toISOString(),
-  totalMessages: 142,
-  totalReservations: 23,
-  persona: {
-    summary: "高頻度で来店するVIP顧客。ワインと季節の料理に関心が高く、週末のディナー予約が多い。丁寧な対応を好み、特別感のあるサービスに高い満足度を示す。",
-    interests: ["ワイン", "季節料理", "個室利用", "記念日ディナー"],
-    communicationStyle: "丁寧語を好む。簡潔な情報提供を期待。",
-  },
-  conversations: [
-    { id: "1", sender: "user", content: "今週末の予約は可能ですか？2名でお願いします。", timestamp: new Date(Date.now() - 1000 * 60 * 30).toISOString() },
-    { id: "2", sender: "ai", content: "田中様、いつもありがとうございます。今週末（土曜日）の18:00以降でしたらお席をご用意できます。お時間のご希望はございますか？", timestamp: new Date(Date.now() - 1000 * 60 * 29).toISOString() },
-    { id: "3", sender: "user", content: "19時でお願いします。個室は空いてますか？", timestamp: new Date(Date.now() - 1000 * 60 * 25).toISOString() },
-    { id: "4", sender: "ai", content: "19時で承知しました。個室もご利用可能です。VIP会員様特典として個室料金はサービスさせていただきます。ご予約を確定してよろしいですか？", timestamp: new Date(Date.now() - 1000 * 60 * 24).toISOString() },
-    { id: "5", sender: "user", content: "はい、お願いします！", timestamp: new Date(Date.now() - 1000 * 60 * 20).toISOString() },
-    { id: "6", sender: "ai", content: "ご予約を確定しました。土曜日19:00、2名様、個室でお待ちしております。当日のお越しを楽しみにしております。", timestamp: new Date(Date.now() - 1000 * 60 * 19).toISOString() },
-  ],
-  recentActivity: [
-    { id: "1", type: "reservation", description: "予約作成 - 土曜日 19:00 2名 個室", timestamp: new Date(Date.now() - 1000 * 60 * 20).toISOString() },
-    { id: "2", type: "message", description: "AIチャットで予約対応", timestamp: new Date(Date.now() - 1000 * 60 * 30).toISOString() },
-    { id: "3", type: "visit", description: "来店 - ディナー", timestamp: new Date(Date.now() - 1000 * 60 * 60 * 24 * 3).toISOString() },
-    { id: "4", type: "reservation", description: "予約作成 - 金曜日 20:00 4名", timestamp: new Date(Date.now() - 1000 * 60 * 60 * 24 * 7).toISOString() },
-  ],
+const membershipLabels: Record<string, string> = {
+  free: "フリー",
+  light: "ライト",
+  standard: "スタンダード",
+  premium: "プレミアム",
 };
 
 function formatDateTime(dateStr: string) {
-  return new Date(dateStr).toLocaleDateString("ja-JP", {
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return "-";
+  return d.toLocaleDateString("ja-JP", {
     year: "numeric",
     month: "short",
     day: "numeric",
@@ -83,7 +61,9 @@ function formatDateTime(dateStr: string) {
 }
 
 function formatTimeShort(dateStr: string) {
-  return new Date(dateStr).toLocaleTimeString("ja-JP", {
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return "-";
+  return d.toLocaleTimeString("ja-JP", {
     hour: "2-digit",
     minute: "2-digit",
   });
@@ -94,33 +74,71 @@ export default function CustomerDetailPage() {
   const router = useRouter();
   const [customer, setCustomer] = useState<CustomerDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     async function fetchCustomer() {
+      setLoading(true);
+      setError(null);
       try {
         const res = await fetch(`/api/customers/${params.id}`);
-        if (res.ok) {
-          const json = await res.json();
-          setCustomer(json);
-        } else {
-          setCustomer(mockCustomer);
+        if (!res.ok) {
+          if (res.status === 404) {
+            setError("顧客が見つかりません。");
+          } else {
+            throw new Error(`API returned ${res.status}`);
+          }
+          return;
         }
-      } catch {
-        setCustomer(mockCustomer);
+        const json = await res.json();
+        // The API wraps the response in a `data` property
+        setCustomer(json.data ?? json);
+      } catch (err) {
+        console.error("Failed to fetch customer:", err);
+        setError("顧客データの取得に失敗しました。");
       } finally {
         setLoading(false);
       }
     }
-    fetchCustomer();
+    if (params.id) {
+      fetchCustomer();
+    }
   }, [params.id]);
 
-  if (loading || !customer) {
+  if (loading) {
     return (
       <div className="space-y-4">
         <Skeleton className="h-8 w-32" />
         <div className="grid gap-4 md:grid-cols-3">
           <Skeleton className="h-64" />
           <Skeleton className="h-64 md:col-span-2" />
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !customer) {
+    return (
+      <div className="space-y-4">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => router.push("/dashboard/customers")}
+          className="gap-2"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          顧客一覧に戻る
+        </Button>
+        <div className="flex flex-col items-center justify-center py-16 text-center">
+          <AlertCircle className="h-10 w-10 text-destructive mb-4" />
+          <p className="text-lg font-medium">{error || "顧客データの取得に失敗しました。"}</p>
+          <Button
+            variant="outline"
+            className="mt-4"
+            onClick={() => router.push("/dashboard/customers")}
+          >
+            顧客一覧に戻る
+          </Button>
         </div>
       </div>
     );
@@ -152,9 +170,9 @@ export default function CustomerDetailPage() {
                 </Avatar>
                 <h2 className="mt-4 text-xl font-bold">{customer.lineName}</h2>
                 <p className="text-xs text-muted-foreground font-mono mt-1">{customer.lineUid}</p>
-                <Badge className="mt-2" variant={customer.membershipTier === "VIP" ? "default" : "secondary"}>
+                <Badge className="mt-2" variant={customer.membershipTier === "premium" || customer.membershipTier === "VIP" ? "default" : "secondary"}>
                   <Star className="mr-1 h-3 w-3" />
-                  {customer.membershipTier}
+                  {membershipLabels[customer.membershipTier] || customer.membershipTier}
                 </Badge>
               </div>
               <Separator className="my-4" />
@@ -172,11 +190,11 @@ export default function CustomerDetailPage() {
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">フォロー日</span>
-                  <span>{new Date(customer.followedAt).toLocaleDateString("ja-JP")}</span>
+                  <span>{customer.followedAt ? new Date(customer.followedAt).toLocaleDateString("ja-JP") : "-"}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">最終応対</span>
-                  <span>{formatDateTime(customer.lastInteraction)}</span>
+                  <span>{customer.lastInteraction ? formatDateTime(customer.lastInteraction) : "-"}</span>
                 </div>
               </div>
             </CardContent>
@@ -192,11 +210,15 @@ export default function CustomerDetailPage() {
             </CardHeader>
             <CardContent>
               <div className="flex flex-wrap gap-2">
-                {customer.tags.map((tag) => (
-                  <Badge key={tag} variant="outline">
-                    {tag}
-                  </Badge>
-                ))}
+                {customer.tags.length > 0 ? (
+                  customer.tags.map((tag) => (
+                    <Badge key={tag} variant="outline">
+                      {tag}
+                    </Badge>
+                  ))
+                ) : (
+                  <p className="text-xs text-muted-foreground">タグなし</p>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -211,20 +233,24 @@ export default function CustomerDetailPage() {
             </CardHeader>
             <CardContent className="space-y-3">
               <p className="text-sm text-muted-foreground">{customer.persona.summary}</p>
-              <div>
-                <p className="text-xs font-medium mb-1">関心事</p>
-                <div className="flex flex-wrap gap-1">
-                  {customer.persona.interests.map((interest) => (
-                    <Badge key={interest} variant="secondary" className="text-xs">
-                      {interest}
-                    </Badge>
-                  ))}
+              {customer.persona.interests.length > 0 && (
+                <div>
+                  <p className="text-xs font-medium mb-1">関心事</p>
+                  <div className="flex flex-wrap gap-1">
+                    {customer.persona.interests.map((interest) => (
+                      <Badge key={interest} variant="secondary" className="text-xs">
+                        {interest}
+                      </Badge>
+                    ))}
+                  </div>
                 </div>
-              </div>
-              <div>
-                <p className="text-xs font-medium mb-1">コミュニケーションスタイル</p>
-                <p className="text-xs text-muted-foreground">{customer.persona.communicationStyle}</p>
-              </div>
+              )}
+              {customer.persona.communicationStyle && (
+                <div>
+                  <p className="text-xs font-medium mb-1">コミュニケーションスタイル</p>
+                  <p className="text-xs text-muted-foreground">{customer.persona.communicationStyle}</p>
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>
@@ -240,52 +266,56 @@ export default function CustomerDetailPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="space-y-4">
-                {customer.conversations.map((msg) => (
-                  <div
-                    key={msg.id}
-                    className={cn(
-                      "flex gap-3",
-                      msg.sender === "user" ? "justify-start" : "justify-end"
-                    )}
-                  >
-                    {msg.sender === "user" && (
-                      <Avatar className="h-8 w-8 shrink-0">
-                        <AvatarFallback>{customer.lineName.slice(0, 1)}</AvatarFallback>
-                      </Avatar>
-                    )}
+              {customer.conversations.length > 0 ? (
+                <div className="space-y-4">
+                  {customer.conversations.map((msg) => (
                     <div
+                      key={msg.id}
                       className={cn(
-                        "max-w-[75%] rounded-2xl px-4 py-2.5",
-                        msg.sender === "user"
-                          ? "bg-muted"
-                          : msg.sender === "ai"
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-blue-600 text-white"
+                        "flex gap-3",
+                        msg.sender === "user" ? "justify-start" : "justify-end"
                       )}
                     >
-                      <p className="text-sm">{msg.content}</p>
-                      <p
+                      {msg.sender === "user" && (
+                        <Avatar className="h-8 w-8 shrink-0">
+                          <AvatarFallback>{customer.lineName.slice(0, 1)}</AvatarFallback>
+                        </Avatar>
+                      )}
+                      <div
                         className={cn(
-                          "mt-1 text-xs",
-                          msg.sender === "user" ? "text-muted-foreground" : "opacity-70"
+                          "max-w-[75%] rounded-2xl px-4 py-2.5",
+                          msg.sender === "user"
+                            ? "bg-muted"
+                            : msg.sender === "ai"
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-blue-600 text-white"
                         )}
                       >
-                        {msg.sender === "ai" && "AI "}
-                        {msg.sender === "admin" && "管理者 "}
-                        {formatTimeShort(msg.timestamp)}
-                      </p>
+                        <p className="text-sm">{msg.content}</p>
+                        <p
+                          className={cn(
+                            "mt-1 text-xs",
+                            msg.sender === "user" ? "text-muted-foreground" : "opacity-70"
+                          )}
+                        >
+                          {msg.sender === "ai" && "AI "}
+                          {msg.sender === "admin" && "管理者 "}
+                          {formatTimeShort(msg.timestamp)}
+                        </p>
+                      </div>
+                      {msg.sender !== "user" && (
+                        <Avatar className="h-8 w-8 shrink-0">
+                          <AvatarFallback className={msg.sender === "ai" ? "bg-primary/20" : "bg-blue-100"}>
+                            {msg.sender === "ai" ? <Bot className="h-4 w-4" /> : "AD"}
+                          </AvatarFallback>
+                        </Avatar>
+                      )}
                     </div>
-                    {msg.sender !== "user" && (
-                      <Avatar className="h-8 w-8 shrink-0">
-                        <AvatarFallback className={msg.sender === "ai" ? "bg-primary/20" : "bg-blue-100"}>
-                          {msg.sender === "ai" ? <Bot className="h-4 w-4" /> : "AD"}
-                        </AvatarFallback>
-                      </Avatar>
-                    )}
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground text-center py-4">会話履歴がありません</p>
+              )}
             </CardContent>
           </Card>
 
@@ -298,27 +328,31 @@ export default function CustomerDetailPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="space-y-4">
-                {customer.recentActivity.map((activity) => (
-                  <div key={activity.id} className="flex items-start gap-3">
-                    <div className="mt-0.5 flex h-8 w-8 items-center justify-center rounded-full bg-muted">
-                      {activity.type === "reservation" ? (
-                        <CalendarCheck className="h-4 w-4 text-purple-500" />
-                      ) : activity.type === "message" ? (
-                        <MessageCircle className="h-4 w-4 text-blue-500" />
-                      ) : (
-                        <Star className="h-4 w-4 text-amber-500" />
-                      )}
+              {customer.recentActivity.length > 0 ? (
+                <div className="space-y-4">
+                  {customer.recentActivity.map((activity) => (
+                    <div key={activity.id} className="flex items-start gap-3">
+                      <div className="mt-0.5 flex h-8 w-8 items-center justify-center rounded-full bg-muted">
+                        {activity.type === "reservation" ? (
+                          <CalendarCheck className="h-4 w-4 text-purple-500" />
+                        ) : activity.type === "message" ? (
+                          <MessageCircle className="h-4 w-4 text-blue-500" />
+                        ) : (
+                          <Star className="h-4 w-4 text-amber-500" />
+                        )}
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-sm">{activity.description}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {formatDateTime(activity.timestamp)}
+                        </p>
+                      </div>
                     </div>
-                    <div className="flex-1">
-                      <p className="text-sm">{activity.description}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {formatDateTime(activity.timestamp)}
-                      </p>
-                    </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground text-center py-4">アクティビティがありません</p>
+              )}
             </CardContent>
           </Card>
         </div>
