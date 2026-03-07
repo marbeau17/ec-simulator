@@ -1,0 +1,263 @@
+.pricing-page {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 32px 24px;
+}
+
+.pricing-header {
+  text-align: center;
+  margin-bottom: 40px;
+}
+
+.pricing-header h1 {
+  font-size: 32px;
+  margin-bottom: 8px;
+}
+
+.pricing-header p {
+  color: #888;
+  font-size: 16px;
+}
+
+/* Pricing cards */
+.pricing-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+  margin-bottom: 60px;
+}
+
+.pricing-card {
+  background: #1e1e30;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+  transition: transform 0.2s, border-color 0.2s;
+  position: relative;
+}
+
+.pricing-card:hover {
+  transform: translateY(-4px);
+}
+
+.pricing-card.popular {
+  border-color: #e94560;
+  box-shadow: 0 8px 32px rgba(233, 69, 96, 0.15);
+}
+
+.pricing-card.current {
+  border-color: #27ae60;
+}
+
+.popular-badge {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  background: #e94560;
+  color: #fff;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.card-header {
+  padding: 32px 24px 24px;
+  text-align: center;
+}
+
+.card-header h2 {
+  font-size: 24px;
+  margin: 0 0 16px;
+}
+
+.card-header.free h2 { color: #a0a0b0; }
+.card-header.pro h2 { color: #e94560; }
+.card-header.business h2 { color: #f0a500; }
+
+.price {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.amount {
+  font-size: 36px;
+  font-weight: 800;
+}
+
+.period {
+  font-size: 14px;
+  color: #888;
+}
+
+.card-desc {
+  color: #888;
+  font-size: 13px;
+  margin: 0;
+}
+
+.card-features {
+  list-style: none;
+  padding: 0 24px;
+  margin: 0 0 24px;
+}
+
+.card-features li {
+  padding: 8px 0;
+  font-size: 14px;
+  color: #bbb;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.card-features li:last-child {
+  border-bottom: none;
+}
+
+.card-features strong {
+  color: #fff;
+}
+
+.btn-plan {
+  display: block;
+  width: calc(100% - 48px);
+  margin: 0 24px 24px;
+  padding: 14px;
+  border: none;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-plan.free {
+  background: rgba(255, 255, 255, 0.08);
+  color: #aaa;
+}
+
+.btn-plan.free:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.btn-plan.pro {
+  background: linear-gradient(135deg, #e94560, #ff6b6b);
+  color: #fff;
+}
+
+.btn-plan.pro:hover {
+  box-shadow: 0 4px 16px rgba(233, 69, 96, 0.4);
+}
+
+.btn-plan.business {
+  background: linear-gradient(135deg, #f0a500, #ffd700);
+  color: #1a1a2e;
+}
+
+.btn-plan.business:hover {
+  box-shadow: 0 4px 16px rgba(240, 165, 0, 0.4);
+}
+
+.current-plan-label {
+  text-align: center;
+  padding: 14px 24px 24px;
+  color: #27ae60;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+/* Comparison table */
+.comparison-section {
+  margin-bottom: 60px;
+}
+
+.comparison-section h2 {
+  text-align: center;
+  font-size: 24px;
+  margin-bottom: 24px;
+}
+
+.comparison-table-wrapper {
+  overflow-x: auto;
+}
+
+.comparison-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.comparison-table th {
+  padding: 12px 16px;
+  text-align: center;
+  color: #888;
+  font-weight: 600;
+  border-bottom: 2px solid rgba(255, 255, 255, 0.1);
+}
+
+.comparison-table th:first-child {
+  text-align: left;
+}
+
+.comparison-table td {
+  padding: 12px 16px;
+  text-align: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  color: #bbb;
+}
+
+.comparison-table .feature-name {
+  text-align: left;
+  color: #eee;
+  font-weight: 500;
+}
+
+.comparison-table .pro-col {
+  color: #e94560;
+}
+
+/* Additional section */
+.additional-section h2 {
+  text-align: center;
+  font-size: 24px;
+  margin-bottom: 24px;
+}
+
+.additional-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+}
+
+.additional-card {
+  background: #1e1e30;
+  border-radius: 12px;
+  padding: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.additional-card h3 {
+  font-size: 16px;
+  margin: 0 0 12px;
+}
+
+.additional-card p {
+  color: #888;
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 0 0 12px;
+}
+
+.additional-price {
+  font-size: 14px;
+  font-weight: 600;
+  color: #e94560;
+}
+
+@media (max-width: 768px) {
+  .pricing-cards, .additional-cards {
+    grid-template-columns: 1fr;
+  }
+}
